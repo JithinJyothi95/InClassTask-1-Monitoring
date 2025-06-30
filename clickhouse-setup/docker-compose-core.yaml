@@ -24,9 +24,9 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:24.1.2-alpine
     container_name: signoz-clickhouse
-    # ports:
-    # - "9000:9000"
-    # - "8123:8123"
+    ports:
+      - "9000:9000"
+      - "8123:8123"
     tty: true
     volumes:
       - ./clickhouse-config.xml:/etc/clickhouse-server/config.xml
@@ -54,6 +54,27 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+  query-service:
+    image: signoz/query-service:0.73.0
+    ports:
+      - "8080:8080"
+      - "8085:8080"
+    depends_on:
+      - clickhouse
+    command: ["./query-service", "-config=/root/config.yml", "-dsn=tcp://clickhouse:9000"]
+    environment:
+      - ClickHouseUrl=tcp://clickhouse:9000
+      - ALERTMANAGER_API_PREFIX=http://alertmanager:9093
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./data/sqlite:/var/lib/signoz
+
 
   alertmanager:
     container_name: signoz-alertmanager
