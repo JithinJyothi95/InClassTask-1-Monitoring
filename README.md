@@ -2,13 +2,15 @@
 
 ## Hypothesis
 
-The SigNoz application was returning 403 errors and failing to serve metrics and services because the `query-service` container was entirely missing from the deployment stack.
+The SigNoz application failed to start because the `query-service` container was entirely missing from the `docker-compose-core.yaml` setup.
 
 ## What Was Attempted
 
-To address this, a new `query-service` container was added to the `docker-compose-core.yaml` under the correct service definition.
+To investigate the startup failure, the stack was reviewed and it was confirmed that the `query-service` (which is essential for bridging ClickHouse data and the frontend UI) was not defined in the active Compose file.
 
-Here is the configuration that was added:
+A full configuration for `query-service` was added, including environment variables, ports, healthcheck, and volumes.
+
+### Added service definition:
 
 ```yaml
 query-service:
@@ -31,18 +33,18 @@ query-service:
     retries: 5
 ```
 
-The stack was then restarted using Docker Compose.
+The stack was restarted using Docker Compose.
 
 ## Problem Encountered
 
-Before this change, accessing the frontend returned HTTP 403 errors for key API routes like `/api/v1/services`, `/api/v1/event`, and `/api/v3/autocomplete/attribute_keys`. Logs showed the requests were hitting the middleware but returned 403 consistently.
+Before the fix, launching the full stack failed due to unmet dependency conditions on `query-service`. Other services like `otel-collector` and `alertmanager` could not initialize fully. UI returned HTTP 403 errors — which were later confirmed as a browser cache artifact due to failed previous loads.
 
 ## Resolution Steps
 
-1. Added the `query-service` container to `docker-compose-core.yaml`.
-2. Included health checks and environment variables.
-3. Used the correct image tag and port mapping.
-4. Ran the following command to apply the fix:
+1. Added the `query-service` block in `docker-compose-core.yaml`.
+2. Mapped correct ports (8080 internally and 8085 externally).
+3. Ensured environment and healthcheck were in place.
+4. Ran the following command:
 
 ```bash
 docker compose -f clickhouse-setup/docker-compose-core.yaml up -d --force-recreate
@@ -50,8 +52,8 @@ docker compose -f clickhouse-setup/docker-compose-core.yaml up -d --force-recrea
 
 ## Test Result
 
-After the change, all containers came up successfully. The query-service passed its health check, and the frontend UI loaded the dashboards and services correctly via `localhost:8085`. HTTP 403 errors were resolved.
+After applying the fix, all containers started properly. The query-service became healthy, and SigNoz UI at `localhost:8085` began displaying traces, metrics, and service data.
 
 ## Conclusion
 
-The absence of the `query-service` was the root cause of failed API access. Adding it properly restored full functionality. This fix ensures SigNoz has a working backend to query ClickHouse and serve API responses to the frontend.
+The root cause of the application failure was a missing `query-service`. Once added and restarted, the SigNoz platform was able to fully boot and serve requests.
