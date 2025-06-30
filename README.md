@@ -1,48 +1,34 @@
-# Branch: fix-add-query-service
+# Branch: fix-query-service-env
 
 ## Hypothesis
 
-The SigNoz application was returning 403 errors and failing to serve metrics and services because the `query-service` container was entirely missing from the deployment stack.
+The SigNoz query-service container was failing to respond to frontend API calls (403 Forbidden), likely due to missing or improperly set environment variables required for connecting to ClickHouse and Alertmanager.
 
 ## What Was Attempted
 
-To address this, a new `query-service` container was added to the `docker-compose-core.yaml` under the correct service definition.
-
-Here is the configuration that was added:
+The following environment variables were added to the `query-service` container in `docker-compose-core.yaml`:
 
 ```yaml
-query-service:
-  image: signoz/query-service:0.73.0
-  ports:
-    - "8080:8080"
-    - "8085:8080"
-  depends_on:
-    - clickhouse
-  command: ["./query-service", "-config=/root/config.yml", "-dsn=tcp://clickhouse:9000"]
-  environment:
-    - ClickHouseUrl=tcp://clickhouse:9000
-    - ALERTMANAGER_API_PREFIX=http://alertmanager:9093
-  volumes:
-    - ./data/sqlite:/var/lib/signoz
-  healthcheck:
-    test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/api/v1/health"]
-    interval: 10s
-    timeout: 5s
-    retries: 5
+environment:
+  - ClickHouseUrl=tcp://clickhouse:9000
+  - ALERTMANAGER_API_PREFIX=http://alertmanager:9093
 ```
 
-The stack was then restarted using Docker Compose.
+These variables are required by SigNoz to:
+- Connect to ClickHouse for trace and metric data.
+- Interact with Alertmanager for alert rule evaluation.
+
+The stack was restarted using Docker Compose.
 
 ## Problem Encountered
 
-Before this change, accessing the frontend returned HTTP 403 errors for key API routes like `/api/v1/services`, `/api/v1/event`, and `/api/v3/autocomplete/attribute_keys`. Logs showed the requests were hitting the middleware but returned 403 consistently.
+Prior to adding the variables, the query-service was returning 403 Forbidden on essential API routes. It also failed internal health checks, and no services or events were visible in the frontend UI.
 
 ## Resolution Steps
 
-1. Added the `query-service` container to `docker-compose-core.yaml`.
-2. Included health checks and environment variables.
-3. Used the correct image tag and port mapping.
-4. Ran the following command to apply the fix:
+1. Added the required environment variables.
+2. Ensured the `clickhouse` service was accessible using internal Docker DNS.
+3. Restarted the stack with:
 
 ```bash
 docker compose -f clickhouse-setup/docker-compose-core.yaml up -d --force-recreate
@@ -50,8 +36,8 @@ docker compose -f clickhouse-setup/docker-compose-core.yaml up -d --force-recrea
 
 ## Test Result
 
-After the change, all containers came up successfully. The query-service passed its health check, and the frontend UI loaded the dashboards and services correctly via `localhost:8085`. HTTP 403 errors were resolved.
+The query-service container became healthy and responded to health probes. Frontend UI loaded properly at `localhost:8085`, and API calls such as `/api/v1/services` began working again.
 
 ## Conclusion
 
-The absence of the `query-service` was the root cause of failed API access. Adding it properly restored full functionality. This fix ensures SigNoz has a working backend to query ClickHouse and serve API responses to the frontend.
+Missing critical environment variables prevented query-service from working correctly. Adding `ClickHouseUrl` and `ALERTMANAGER_API_PREFIX` resolved the issue, allowing SigNoz to function normally.
